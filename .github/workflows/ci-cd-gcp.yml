@@ -5,15 +5,11 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# Only use secrets/values directly here (no env.* references)
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: ${{ secrets.GCP_REGION }}
-  GAR_REPO: ${{ secrets.GAR_REPO }}
-  REG_PATH: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GAR_REPO }}
-  BACKEND_IMAGE: ${{ env.REG_PATH }}/backend
-  FRONTEND_IMAGE: ${{ env.REG_PATH }}/frontend
-  BACKEND_SERVICE: backend
-  FRONTEND_SERVICE: frontend
+  REGION:     ${{ secrets.GCP_REGION }}
+  GAR_REPO:   ${{ secrets.GAR_REPO }}
 
 jobs:
   build-and-deploy:
@@ -25,6 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ---- Auth to GCP via Workload Identity Federation ----
       - id: auth
         uses: google-github-actions/auth@v2
         with:
@@ -35,10 +32,19 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+      # ---- Compute derived env vars & export to job env ----
+      - name: Compute image names
+        run: |
+          REG_PATH="${REGION}-docker.pkg.dev/${PROJECT_ID}/${GAR_REPO}"
+          echo "REG_PATH=${REG_PATH}" >> $GITHUB_ENV
+          echo "BACKEND_IMAGE=${REG_PATH}/backend" >> $GITHUB_ENV
+          echo "FRONTEND_IMAGE=${REG_PATH}/frontend" >> $GITHUB_ENV
 
-      # ---- Build sanity checks (root-level paths) ----
+      # ---- Configure Docker to push to Artifact Registry ----
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      # ---- Sanity checks (paths match your repo: ./backend, ./frontend) ----
       - name: Backend sanity
         working-directory: backend
         run: |
@@ -51,7 +57,7 @@ jobs:
           npm ci
           npm run build
 
-      # ---- Build & push images ----
+      # ---- Build & push backend ----
       - name: Build & push backend
         uses: docker/build-push-action@v6
         with:
@@ -61,18 +67,20 @@ jobs:
             ${{ env.BACKEND_IMAGE }}:latest
             ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
 
-      - name: Deploy backend
+      # ---- Deploy backend (inject MONGO_URI) ----
+      - id: be
+        name: Deploy backend
         run: |
-          gcloud run deploy $BACKEND_SERVICE \
+          gcloud run deploy backend \
             --image="${BACKEND_IMAGE}:latest" \
-            --region="$REGION" \
+            --region="${REGION}" \
             --allow-unauthenticated \
             --set-env-vars=MONGO_URI="${{ secrets.MONGO_URI }}" \
             --quiet
-          URL=$(gcloud run services describe $BACKEND_SERVICE --region "$REGION" --format='value(status.url)')
-          echo "backend_url=$URL" >> $GITHUB_OUTPUT
-        id: be
+          URL=$(gcloud run services describe backend --region "${REGION}" --format='value(status.url)')
+          echo "backend_url=${URL}" >> $GITHUB_OUTPUT
 
+      # ---- Build & push frontend ----
       - name: Build & push frontend
         uses: docker/build-push-action@v6
         with:
@@ -82,13 +90,20 @@ jobs:
             ${{ env.FRONTEND_IMAGE }}:latest
             ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
 
-      - name: Deploy frontend (inject BACKEND_URL)
+      # ---- Deploy frontend (inject BACKEND_URL at runtime) ----
+      - name: Deploy frontend
         env:
           BACKEND_URL: ${{ steps.be.outputs.backend_url }}
         run: |
-          gcloud run deploy $FRONTEND_SERVICE \
+          gcloud run deploy frontend \
             --image="${FRONTEND_IMAGE}:latest" \
-            --region="$REGION" \
+            --region="${REGION}" \
             --allow-unauthenticated \
-            --set-env-vars=BACKEND_URL="$BACKEND_URL" \
+            --set-env-vars=BACKEND_URL="${BACKEND_URL}" \
             --quiet
+
+      # (Optional) Print service URLs to logs
+      - name: Show URLs
+        run: |
+          echo "Backend:  $(gcloud run services describe backend  --region "${REGION}" --format='value(status.url)')"
+          echo "Frontend: $(gcloud run services describe frontend --region "${REGION}" --format='value(status.url)')"
