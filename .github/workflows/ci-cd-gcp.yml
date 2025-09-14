@@ -5,7 +5,6 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-# Only use secrets/values directly here (no env.* references)
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION:     ${{ secrets.GCP_REGION }}
@@ -32,29 +31,35 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
+      # Use a known Node.js version and enable npm cache
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
       # ---- Compute derived env vars & export to job env ----
       - name: Compute image names
         run: |
           REG_PATH="${REGION}-docker.pkg.dev/${PROJECT_ID}/${GAR_REPO}"
-          echo "REG_PATH=${REG_PATH}" >> $GITHUB_ENV
-          echo "BACKEND_IMAGE=${REG_PATH}/backend" >> $GITHUB_ENV
-          echo "FRONTEND_IMAGE=${REG_PATH}/frontend" >> $GITHUB_ENV
+          echo "REG_PATH=${REG_PATH}" >> "$GITHUB_ENV"
+          echo "BACKEND_IMAGE=${REG_PATH}/backend" >> "$GITHUB_ENV"
+          echo "FRONTEND_IMAGE=${REG_PATH}/frontend" >> "$GITHUB_ENV"
 
       # ---- Configure Docker to push to Artifact Registry ----
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-      # ---- Sanity checks (paths match your repo: ./backend, ./frontend) ----
+      # ---- Sanity checks (paths: ./backend, ./frontend) ----
       - name: Backend sanity
         working-directory: backend
         run: |
-          npm ci
+          if [ -f package-lock.json ]; then npm ci; else npm i; fi
           node -e "console.log('backend ok')"
 
       - name: Frontend build sanity
         working-directory: frontend
         run: |
-          npm ci
+          if [ -f package-lock.json ]; then npm ci; else npm i; fi
           npm run build
 
       # ---- Build & push backend ----
@@ -77,8 +82,8 @@ jobs:
             --allow-unauthenticated \
             --set-env-vars=MONGO_URI="${{ secrets.MONGO_URI }}" \
             --quiet
-          URL=$(gcloud run services describe backend --region "${REGION}" --format='value(status.url)')
-          echo "backend_url=${URL}" >> $GITHUB_OUTPUT
+          URL="$(gcloud run services describe backend --region "${REGION}" --format='value(status.url)')"
+          echo "backend_url=${URL}" >> "$GITHUB_OUTPUT"
 
       # ---- Build & push frontend ----
       - name: Build & push frontend
@@ -102,7 +107,7 @@ jobs:
             --set-env-vars=BACKEND_URL="${BACKEND_URL}" \
             --quiet
 
-      # (Optional) Print service URLs to logs
+      # ---- Print service URLs ----
       - name: Show URLs
         run: |
           echo "Backend:  $(gcloud run services describe backend  --region "${REGION}" --format='value(status.url)')"
