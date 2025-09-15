@@ -1,5 +1,5 @@
 # ---------- build stage ----------
-FROM node:18-alpine AS build
+FROM mirror.gcr.io/library/node:18-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --no-audit --no-fund || npm i
@@ -8,7 +8,7 @@ RUN npm run build
 
 # ---------- runtime stage ----------
 # runtime stage ...
-FROM nginx:1.27-alpine
+FROM mirror.gcr.io/library/nginx:1.27-alpine
 RUN apk add --no-cache gettext && rm -f /etc/nginx/conf.d/default.conf
 COPY --from=build /app/build /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
