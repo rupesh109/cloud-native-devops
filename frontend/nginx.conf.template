@@ -7,25 +7,32 @@ server {
 
   # Health for Cloud Run
   location = /healthz {
-    return 200 "ok";
     add_header Content-Type text/plain;
+    return 200 "ok";
   }
 
-  # --- API proxy (keep /api prefix) ---
-  # BACKEND_URL is injected by Cloud Run at start via envsubst.
-  location /api/ {
+  # IMPORTANT: resolver is required when proxy_pass uses a variable host
+  # Cloud Run metadata DNS resolver
+  resolver 169.254.169.254 ipv6=off;
+
+  # ---- API proxy ----
+  # Set at deploy time (must include https://)
+  set $backend "$BACKEND_URL";
+
+  location ^~ /api/ {
     proxy_set_header Host              $host;
     proxy_set_header X-Real-IP         $remote_addr;
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_http_version 1.1;
-    proxy_set_header Connection "";
 
-    # DO NOT rewrite the path; backend expects /api/*
-    proxy_pass ${BACKEND_URL};
+    # strip /api prefix
+    rewrite ^/api/?(.*)$ /$1 break;
+
+    # keep a trailing slash to keep paths clean when we rewrote above
+    proxy_pass $backend/;
   }
 
-  # --- SPA routing ---
+  # ---- SPA routing ----
   location / {
     try_files $uri /index.html;
   }
