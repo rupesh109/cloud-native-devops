@@ -1,4 +1,4 @@
-FROM node:18-alpine
+kFROM node:18-alpine
 
 WORKDIR /app
 COPY package*.json ./
@@ -8,3 +8,4 @@ COPY . .
 ENV NODE_ENV=production PORT=8080
 EXPOSE 8080
 CMD ["npm","start"]
+
