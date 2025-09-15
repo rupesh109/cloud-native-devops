@@ -1,37 +1,76 @@
-const express = require("express");
-const mongoose = require("mongoose");
+// backend/src/server.js
+import express from "express";
+import cors from "cors";
+import { MongoClient } from "mongodb";
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
-// MongoDB Connection (env for Cloud Run; local default for docker-compose)
-const MONGO_URI = process.env.MONGO_URI || "mongodb://mongo:27017/devopsdb";
-mongoose
-  .connect(MONGO_URI)
-  .then(() => console.log("✅ Mongo connected"))
-  .catch((err) => console.error("❌ Mongo connection error:", err.message));
+const PORT = process.env.PORT || 4000;
+const MONGO_URI =
+  process.env.MONGO_URI ||
+  "mongodb://mongo:27017/devops"; // local fallback for docker-compose
 
-// Health checks (both paths so it works directly and via /api proxy)
-app.get("/health", (_req, res) => res.json({ ok: true }));
-app.get("/api/health", (_req, res) => res.json({ ok: true }));
+// --- reuse a single Mongo client across requests ---
+let client;
+async function getDb() {
+  if (!client) {
+    client = new MongoClient(MONGO_URI, { maxPoolSize: 5 });
+    await client.connect();
+  }
+  return client.db(); // default DB from URI
+}
 
-// Routes (unchanged; Nginx /api proxy will strip the /api prefix)
-const UserSchema = new mongoose.Schema({ name: String });
-const User = mongoose.model("User", UserSchema);
+// --- health endpoints (both /health and /api/health) ---
+async function healthHandler(_req, res) {
+  try {
+    // ping DB (optional)
+    try {
+      const db = await getDb();
+      await db.command({ ping: 1 });
+      res.json({ ok: true, ts: new Date().toISOString(), db: "ok" });
+    } catch {
+      res.json({ ok: true, ts: new Date().toISOString(), db: "unreachable" });
+    }
+  } catch (e) {
+    res.status(200).json({ ok: true, ts: new Date().toISOString() });
+  }
+}
+app.get("/health", healthHandler);
+app.get("/api/health", healthHandler);
 
-app.get("/", (_req, res) => res.send("Backend API running 🚀"));
+// --- users endpoints (both /users and /api/users) ---
+async function listUsers(_req, res) {
+  try {
+    const db = await getDb();
+    const users = await db.collection("users").find({}).sort({ _id: -1 }).toArray();
+    res.json(users);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "db_error" });
+  }
+}
 
-app.post("/users", async (req, res) => {
-  const user = new User({ name: req.body.name });
-  await user.save();
-  res.send(user);
-});
+async function addUser(req, res) {
+  try {
+    const { name } = req.body || {};
+    if (!name || !name.trim()) return res.status(400).json({ error: "name_required" });
+    const db = await getDb();
+    const doc = { name: name.trim(), createdAt: new Date() };
+    await db.collection("users").insertOne(doc);
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "db_error" });
+  }
+}
 
-app.get("/users", async (_req, res) => {
-  const users = await User.find();
-  res.send(users);
-});
+// root form
+app.get("/users", listUsers);
+app.post("/users", addUser);
+// prefixed form
+app.get("/api/users", listUsers);
+app.post("/api/users", addUser);
 
-// Cloud Run listens on $PORT (defaults to 8080)
-const port = process.env.PORT || 8080;
-app.listen(port, "0.0.0.0", () => console.log(`Backend running on port ${port}`));
+app.listen(PORT, () => console.log(`Backend listening on ${PORT}`));
