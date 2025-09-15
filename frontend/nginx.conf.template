@@ -1,0 +1,36 @@
+# frontend/nginx.conf.template
+server {
+  # Cloud Run expects the app to listen on 8080
+  listen 8080;
+  server_name _;
+
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # Simple health endpoint for Cloud Run
+  location = /healthz {
+    return 200 "ok";
+    add_header Content-Type text/plain;
+  }
+
+  # ---- API proxy ----
+  # BACKEND_URL is injected at deploy time by GitHub Actions / Cloud Run
+  set $backend "$BACKEND_URL";
+
+  location /api/ {
+    # keep client context
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # strip /api prefix before sending to backend
+    rewrite ^/api/?(.*)$ /$1 break;
+    proxy_pass $backend;
+  }
+
+  # ---- SPA routing ----
+  location / {
+    try_files $uri /index.html;
+  }
+}
