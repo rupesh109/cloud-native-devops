@@ -1,25 +1,19 @@
-// frontend/src/App.js
 import React, { useEffect, useState, useCallback } from "react";
 import "./App.css";
 
-const api = (path) => `/api${path}`; // Nginx proxies /api → Cloud Run backend
+const api = (path) => `/api${path}`; // Nginx proxies /api → backend
 
 function Pill({ ok, children }) {
-  return (
-    <span className={`pill ${ok ? "pill-ok" : "pill-bad"}`}>
-      {children}
-    </span>
-  );
+  return <span className={`pill ${ok ? "pill-ok" : "pill-bad"}`}>{children}</span>;
 }
 
 export default function App() {
-  const [health, setHealth] = useState(null); // "healthy" | "unhealthy" | "unreachable" | null
+  const [health, setHealth] = useState(null);
   const [users, setUsers] = useState([]);
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  // bundle health + users fetch; useCallback so eslint is happy in CI
   const fetchAll = useCallback(async () => {
     setErr("");
     try {
@@ -28,7 +22,6 @@ export default function App() {
     } catch {
       setHealth("unreachable");
     }
-
     try {
       const data = await fetch(api("/users")).then((r) => r.json());
       setUsers(Array.isArray(data) ? data : []);
@@ -38,9 +31,7 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const addUser = async () => {
     if (!name.trim()) return;
@@ -63,22 +54,14 @@ export default function App() {
 
   return (
     <div className="page">
-      {/* Header */}
       <header className="header">
-        <div className="title">
-          <span className="emoji">🚀</span> DevOps Project
-        </div>
+        <div className="title"><span className="emoji">🚀</span> DevOps Project</div>
         <div className="header-right">
-          {health && (
-            <Pill ok={health === "healthy"}>
-              API: {health}
-            </Pill>
-          )}
+          {health && <Pill ok={health === "healthy"}>API: {health}</Pill>}
           <button className="btn ghost" onClick={fetchAll}>Refresh</button>
         </div>
       </header>
 
-      {/* Add user card */}
       <section className="card">
         <h3 className="card-title">Add User</h3>
         <div className="row">
@@ -88,18 +71,13 @@ export default function App() {
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Ada Lovelace"
           />
-          <button
-            className="btn primary"
-            onClick={addUser}
-            disabled={loading}
-          >
+          <button className="btn primary" onClick={addUser} disabled={loading}>
             {loading ? "Adding…" : "Add"}
           </button>
         </div>
         {err && <p className="error">{err}</p>}
       </section>
 
-      {/* Users list */}
       <section className="card">
         <h3 className="card-title">Users</h3>
         {users.length === 0 ? (
