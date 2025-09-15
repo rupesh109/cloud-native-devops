@@ -15,35 +15,18 @@ A tiny full-stack app that demonstrates **cloud-native delivery on GCP**:
 - **Optionally**: **SonarQube** code analysis (if tokens are provided).
 
 ---
+Live services
 
-## 🗺️ Architecture
+Frontend: https://frontend-z3e5qg5e7q-el.a.run.app/
 
-```mermaid
-flowchart LR
-  U[User Browser] --> F[Cloud Run • Frontend (Nginx)]
-  F -- "/api/* proxy" --> B[Cloud Run • Backend (Express)]
-  B -->|Mongo driver| M[(MongoDB Atlas: devops)]
+Backend: https://backend-z3e5qg5e7q-el.a.run.app/
 
-  subgraph CI[GitHub Actions (CI/CD)]
-    C1[[Build images]]
-    C2[[Security scan (Trivy)]]
-    C3[[Optional: SonarQube]]
-    C4[[Deploy via WIF]]
-  end
 
-  subgraph GCP[Google Cloud]
-    AR[(Artifact Registry)]
-    F
-    B
-  end
+## 🏗️ Architecture
 
-  C1 --> AR
-  C2 --> C1
-  C3 --> C1
-  AR --> F
-  AR --> B
-  C4 --> F
-  C4 --> B
+Here’s the high-level system design for this project:
+
+![Architecture Diagram](./Architecture.png)
 
 
 🖥️ Deploy (CI/CD)
@@ -56,4 +39,37 @@ flowchart LR
 6. Deploy backend, capture URL
 7. Deploy frontend with BACKEND_URL=<backend-url>
 
+📁 Repository layout
+.
+├── backend/
+│   ├── Dockerfile
+│   ├── package.json
+│   └── server.js                # Express API (list/add users), health endpoints
+├── frontend/
+│   ├── Dockerfile               # Multi-stage build → Nginx runtime
+│   ├── nginx.conf.template      # proxies /api/* → $BACKEND_URL
+│   ├── package.json
+│   ├── public/, src/
+│   └── src/App.js, src/App.css  # polished UI + /api integration
+├── .github/workflows/ci-cd-gcp.yml
+└── README.md
 
+🚢 CI/CD pipeline (what happens on main)
+
+Auth to GCP using Workload Identity Federation (no JSON key).
+
+Compute image names → asia-south1-docker.pkg.dev/<PROJECT>/<GAR_REPO>/{backend,frontend}.
+
+Sanity build: npm ci and npm run build (frontend).
+
+Build & push both images to Artifact Registry.
+
+Trivy scan images (non-blocking).
+
+Optional SonarQube analysis.
+
+Deploy backend to Cloud Run with MONGO_URI.
+
+Deploy frontend to Cloud Run with BACKEND_URL (backend’s URL).
+
+Print service URLs.
