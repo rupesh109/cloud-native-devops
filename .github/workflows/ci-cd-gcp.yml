@@ -2,13 +2,18 @@ name: CI-CD (GCP Cloud Run)
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION:     ${{ secrets.GCP_REGION }}
   GAR_REPO:   ${{ secrets.GAR_REPO }}
+
+# Avoid overlapping deploys
+concurrency:
+  group: cloud-run-deploy
+  cancel-in-progress: true
 
 jobs:
   build-and-deploy:
@@ -20,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Auth to GCP via Workload Identity Federation
+      # ---- Auth to GCP via Workload Identity Federation ----
       - id: auth
         uses: google-github-actions/auth@v2
         with:
@@ -31,12 +36,11 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      # Use Node 18 (no cache to avoid lock-file error)
       - uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      # Compute image names
+      # ---- Compute image names ----
       - name: Compute image names
         run: |
           REG_PATH="${REGION}-docker.pkg.dev/${PROJECT_ID}/${GAR_REPO}"
@@ -44,25 +48,24 @@ jobs:
           echo "BACKEND_IMAGE=${REG_PATH}/backend" >> "$GITHUB_ENV"
           echo "FRONTEND_IMAGE=${REG_PATH}/frontend" >> "$GITHUB_ENV"
 
-      # Configure Docker for Artifact Registry
+      # ---- Configure Docker for Artifact Registry ----
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-      # Backend sanity (ci->i fallback)
+      # ---- Sanity checks (optional) ----
       - name: Backend sanity
         working-directory: backend
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm i; fi
           node -e "console.log('backend ok')"
 
-      # Frontend sanity (ci->i fallback)
       - name: Frontend build sanity
         working-directory: frontend
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm i; fi
           npm run build
 
-      # Build & push backend
+      # ---- Build & push backend ----
       - name: Build & push backend
         uses: docker/build-push-action@v6
         with:
@@ -72,7 +75,27 @@ jobs:
             ${{ env.BACKEND_IMAGE }}:latest
             ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
 
-      # Deploy backend (inject MONGO_URI)
+      # ---- Trivy scan: backend (non-blocking) ----
+      - name: Trivy scan backend
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.BACKEND_IMAGE }}:latest
+          format: table
+          exit-code: '0'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      # ---- Optional SonarQube scan (backend code) ----
+      - name: SonarQube scan (backend)
+        if: ${{ secrets.SONAR_TOKEN != '' && secrets.SONAR_HOST_URL != '' }}
+        uses: SonarSource/sonarqube-scan-action@v2
+        with:
+          projectBaseDir: backend
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      # ---- Deploy backend ----
       - id: be
         name: Deploy backend
         run: |
@@ -82,10 +105,9 @@ jobs:
             --allow-unauthenticated \
             --set-env-vars=MONGO_URI="${{ secrets.MONGO_URI }}" \
             --quiet
-          URL="$(gcloud run services describe backend --region "${REGION}" --format='value(status.url)')"
-          echo "backend_url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "backend_url=$(gcloud run services describe backend --region "${REGION}" --format='value(status.url)')" >> "$GITHUB_OUTPUT"
 
-      # Build & push frontend
+      # ---- Build & push frontend ----
       - name: Build & push frontend
         uses: docker/build-push-action@v6
         with:
@@ -95,7 +117,27 @@ jobs:
             ${{ env.FRONTEND_IMAGE }}:latest
             ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
 
-      # Deploy frontend (inject BACKEND_URL)
+      # ---- Trivy scan: frontend (non-blocking) ----
+      - name: Trivy scan frontend
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.FRONTEND_IMAGE }}:latest
+          format: table
+          exit-code: '0'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      # ---- Optional SonarQube scan (frontend code) ----
+      - name: SonarQube scan (frontend)
+        if: ${{ secrets.SONAR_TOKEN != '' && secrets.SONAR_HOST_URL != '' }}
+        uses: SonarSource/sonarqube-scan-action@v2
+        with:
+          projectBaseDir: frontend
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      # ---- Deploy frontend (inject BACKEND_URL) ----
       - name: Deploy frontend
         env:
           BACKEND_URL: ${{ steps.be.outputs.backend_url }}
@@ -107,7 +149,7 @@ jobs:
             --set-env-vars=BACKEND_URL="${BACKEND_URL}" \
             --quiet
 
-      # Print service URLs
+      # ---- Print service URLs ----
       - name: Show URLs
         run: |
           echo "Backend:  $(gcloud run services describe backend  --region "${REGION}" --format='value(status.url)')"
