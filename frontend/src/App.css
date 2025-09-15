@@ -1,70 +1,123 @@
-:root {
-  --bg: #f6f8fb;
-  --card: #ffffff;
-  --line: #e9edf3;
-  --text: #0f172a;
-  --muted: #64748b;
-  --brand: #0f62fe;
-  --brand-600: #0956ea;
-  --ok-bg: #eafff3;
-  --ok-fg: #0b6a3d;
-  --bad-bg: #ffecec;
-  --bad-fg: #a20000;
+// frontend/src/App.js
+import React, { useEffect, useState, useCallback } from "react";
+import "./App.css";
+
+const api = (path) => `/api${path}`; // Nginx proxies /api → Cloud Run backend
+
+function Pill({ ok, children }) {
+  return (
+    <span className={`pill ${ok ? "pill-ok" : "pill-bad"}`}>
+      {children}
+    </span>
+  );
 }
 
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, sans-serif; }
+export default function App() {
+  const [health, setHealth] = useState(null); // "healthy" | "unhealthy" | "unreachable" | null
+  const [users, setUsers] = useState([]);
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
 
-.page { max-width: 960px; margin: 0 auto; padding: 28px 20px 80px; }
+  // bundle health + users fetch; useCallback so eslint is happy in CI
+  const fetchAll = useCallback(async () => {
+    setErr("");
+    try {
+      const h = await fetch(api("/health")).then((r) => r.json());
+      setHealth(h?.ok ? "healthy" : "unhealthy");
+    } catch {
+      setHealth("unreachable");
+    }
 
-.header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 18px;
+    try {
+      const data = await fetch(api("/users")).then((r) => r.json());
+      setUsers(Array.isArray(data) ? data : []);
+    } catch {
+      setErr("Couldn’t load users. Check backend and MongoDB.");
+      setUsers([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  const addUser = async () => {
+    if (!name.trim()) return;
+    setLoading(true);
+    setErr("");
+    try {
+      await fetch(api("/users"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      setName("");
+      await fetchAll();
+    } catch {
+      setErr("Add failed. Is backend up and MONGO_URI valid?");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="page">
+      {/* Header */}
+      <header className="header">
+        <div className="title">
+          <span className="emoji">🚀</span> DevOps Project
+        </div>
+        <div className="header-right">
+          {health && (
+            <Pill ok={health === "healthy"}>
+              API: {health}
+            </Pill>
+          )}
+          <button className="btn ghost" onClick={fetchAll}>Refresh</button>
+        </div>
+      </header>
+
+      {/* Add user card */}
+      <section className="card">
+        <h3 className="card-title">Add User</h3>
+        <div className="row">
+          <input
+            className="input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Ada Lovelace"
+          />
+          <button
+            className="btn primary"
+            onClick={addUser}
+            disabled={loading}
+          >
+            {loading ? "Adding…" : "Add"}
+          </button>
+        </div>
+        {err && <p className="error">{err}</p>}
+      </section>
+
+      {/* Users list */}
+      <section className="card">
+        <h3 className="card-title">Users</h3>
+        {users.length === 0 ? (
+          <p className="muted">No users yet — add one above.</p>
+        ) : (
+          <ul className="list">
+            {users.map((u, i) => (
+              <li className="list-item" key={u._id || i}>
+                <span className="avatar">{(u.name || "?").slice(0, 1).toUpperCase()}</span>
+                <span className="name">{u.name}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="footnote">
+          Deployed on <b>GCP Cloud Run</b> via <b>GitHub Actions</b> (WIF) • Images from <b>Artifact Registry</b>
+        </p>
+      </section>
+    </div>
+  );
 }
-.title { font-size: 28px; font-weight: 700; letter-spacing: 0.2px; display: flex; align-items: center; gap: 10px; }
-.emoji { filter: drop-shadow(0 1px 2px rgba(0,0,0,0.08)); }
-.header-right { display: flex; align-items: center; gap: 10px; }
-
-.card {
-  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-  padding: 16px; margin-bottom: 16px; box-shadow: 0 6px 18px rgba(0,0,0,0.04);
-}
-.card-title { margin: 0 0 10px 0; font-size: 18px; }
-
-.row { display: flex; gap: 10px; }
-.input {
-  flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; outline: none;
-}
-.input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(15,98,254,0.15); }
-
-.btn {
-  padding: 10px 16px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; font-weight: 600;
-  transition: transform .02s ease, background .15s ease, border-color .15s ease;
-}
-.btn:active { transform: translateY(1px); }
-.btn.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
-.btn.primary:hover { background: var(--brand-600); border-color: var(--brand-600); }
-.btn.ghost { background: #fff; border: 1px solid var(--line); color: var(--text); }
-.btn.ghost:hover { border-color: #cfd8e3; }
-
-.pill {
-  padding: 4px 10px; border-radius: 999px; font-size: 12px; border: 1px solid;
-}
-.pill-ok { background: var(--ok-bg); color: var(--ok-fg); border-color: #c9f1d9; }
-.pill-bad { background: var(--bad-bg); color: var(--bad-fg); border-color: #ffc1c1; }
-
-.error { color: var(--bad-fg); margin-top: 8px; }
-.muted { color: var(--muted); }
-
-.list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
-.list-item {
-  display: flex; align-items: center; gap: 12px; padding: 10px;
-  border: 1px solid var(--line); border-radius: 10px; background: #fff;
-}
-.avatar {
-  width: 32px; height: 32px; border-radius: 999px; background: #eef3ff; color: var(--brand);
-  display: inline-grid; place-items: center; font-weight: 700;
-}
-.name { font-weight: 600; }
-
-.footnote { margin-top: 12px; color: var(--muted); font-size: 13px; }
