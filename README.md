@@ -1,4 +1,4 @@
-# 🚀 Cloud-Native DevOps Demo (React + Node + GCP Cloud Run + MongoDB Atlas)
+# 🚀 Cloud-Native DevOps Pipeline (React + Node + GCP Cloud Run + MongoDB Atlas)
 
 [![CI-CD (GCP Cloud Run)](https://github.com/rupesh109/cloud-native-devops/actions/workflows/ci-cd-gcp.yml/badge.svg)](../../actions/workflows/ci-cd-gcp.yml)
 ![Node](https://img.shields.io/badge/Node-18.x-43853d?logo=node.js&logoColor=white)
@@ -7,12 +7,19 @@
 ![Trivy](https://img.shields.io/badge/Secured%20by-Trivy-0F80AA?logo=aqua)
 ![License](https://img.shields.io/badge/License-MIT-informational)
 
-A tiny full-stack app that demonstrates **cloud-native delivery on GCP**:
-- **Frontend**: React SPA served by **Nginx**, proxying `/api/*` to the backend.
-- **Backend**: Node/Express REST API with `/api/users` persisted in **MongoDB Atlas**.
-- **CI/CD**: GitHub Actions → **Artifact Registry** → **Cloud Run** via **Workload Identity Federation** (no long-lived keys).
-- **Security**: Container image scanning with **Trivy**.
-- **Optionally**: **SonarQube** code analysis (if tokens are provided).
+This project demonstrates end-to-end DevOps practices for deploying a React frontend and Node/Express backend on Google Cloud Run, with a fully automated CI/CD pipeline.
+
+Key features:
+
+• 🚀 Automated CI/CD with GitHub Actions
+
+• 🏗 Infrastructure as Code using Terraform
+
+• 🔐 Security with Trivy scans and Workload Identity Federation (no long-lived keys)
+
+• 📦 Containerization with Docker and Artifact Registry
+
+• 📊 Optional code analysis with SonarQube
 
 ---
 Live services
@@ -29,47 +36,53 @@ Here’s the high-level system design for this project:
 ![Architecture Diagram](./Architecture.png)
 
 
-🖥️ Deploy (CI/CD)
+# ⚙️ CI/CD Workflow
 
 1. On push to main:
 2. Authenticate to GCP via Workload Identity Federation
-3. Build & push images → Artifact Registry
-4. Trivy scans (non-blocking by default)
-5. (Optional) SonarQube scan
-6. Deploy backend, capture URL
-7. Deploy frontend with BACKEND_URL=<backend-url>
+3. Build & push Docker images → Artifact Registry
+4. Run Trivy scans (non-blocking by default)
+5. (Optional) Run SonarQube analysis
+6. Deploy backend → capture API URL
+7. Deploy frontend → inject backend API URL
+8. Validate deployment 
 
-📁 Repository layout
-.
-├── backend/
-│   ├── Dockerfile
-│   ├── package.json
-│   └── server.js                # Express API (list/add users), health endpoints
-├── frontend/
-│   ├── Dockerfile               # Multi-stage build → Nginx runtime
-│   ├── nginx.conf.template      # proxies /api/* → $BACKEND_URL
-│   ├── package.json
-│   ├── public/, src/
-│   └── src/App.js, src/App.css  # polished UI + /api integration
-├── .github/workflows/ci-cd-gcp.yml
-└── README.md
+# 📂 Tech Stack
 
-🚢 CI/CD pipeline (what happens on main)
+• Frontend: React (served via Cloud Run)
 
-Auth to GCP using Workload Identity Federation (no JSON key).
+• Backend: Node.js / Express + MongoDB Atlas
 
-Compute image names → asia-south1-docker.pkg.dev/<PROJECT>/<GAR_REPO>/{backend,frontend}.
+• CI/CD: GitHub Actions + Artifact Registry + Cloud Run
 
-Sanity build: npm ci and npm run build (frontend).
+• Infra: Terraform for provisioning
 
-Build & push both images to Artifact Registry.
+• Security: Trivy scans, optional SonarQube
 
-Trivy scan images (non-blocking).
 
-Optional SonarQube analysis.
+# 📁 Repository layout
+backend/
+ ├── Dockerfile
+ ├── package.json
+ └── server.js        # Express API (list/add users), health endpoints
 
-Deploy backend to Cloud Run with MONGO_URI.
+frontend/
+ ├── Dockerfile       # Multi-stage build → Nginx runtime
+ ├── nginx.conf.template  # Proxies /api/* → $BACKEND_URL
+ ├── package.json
+ ├── public/
+ └── src/
+     ├── App.js
+     └── App.css      # polished UI + API integration
 
-Deploy frontend to Cloud Run with BACKEND_URL (backend’s URL).
+.github/workflows/
+ └── ci-cd-gcp.yml    # GitHub Actions pipeline
 
-Print service URLs.
+terraform-gcp/
+ └── main.tf          # Infra provisioning
+
+README.md
+docker-compose.yml
+
+
+
