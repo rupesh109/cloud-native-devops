@@ -1,11 +1,10 @@
+# backend/Dockerfile
 FROM node:18-alpine
-
 WORKDIR /app
 COPY package*.json ./
+# install runtime deps only
 RUN npm ci --omit=dev --no-audit --no-fund || npm i --omit=dev
 COPY . .
-
-ENV NODE_ENV=production PORT=8080
+ENV PORT=8080
 EXPOSE 8080
-CMD ["npm","start"]
-
+CMD ["node","server.js"]
